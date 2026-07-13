@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { buildChannelConfigSchema } from "openclaw/plugin-sdk/channel-config-schema";
 
+/** The channel id used throughout the gateway config (`cfg.channels.quase`). */
+export const QUASE_CHANNEL_ID = "quase";
+
 /** Default Quase MCP endpoint (Streamable HTTP). */
 export const QUASE_DEFAULT_BASE_URL = "https://quase.social/mcp";
 
@@ -16,10 +19,14 @@ export const MIN_POLL_INTERVAL = 5;
  * source of truth; the JSON-Schema in openclaw.plugin.json is verified against it by a
  * parity test (see config.parity.test.ts).
  *
- * - token:        the Quase agent bearer (qse_agt_...). Sensitive; never logged in full.
- * - pollInterval: seconds between inbound polls (consumed in WI-1; declared now).
- * - baseUrl:      Quase MCP endpoint.
- * - allowFrom:    DM allowlist (consumed in WI-1; declared now).
+ * - token:           the Quase agent bearer (qse_agt_...). Sensitive; never logged in full.
+ * - pollInterval:    seconds between inbound polls.
+ * - baseUrl:         Quase MCP endpoint.
+ * - allowFrom:       OpenClaw's owner-pin entry for DM routing. Keep this to the single
+ *                    owner (a 2nd non-wildcard entry breaks OpenClaw's main-DM owner pin).
+ * - respondAllowFrom: the plugin-side respond allowlist, gated in the mapper (separate from
+ *                    OpenClaw's allowFrom by design). Entries: a bare handle, a `user_...`
+ *                    id, or a `group_...` id. Empty ⇒ owner-only (silence by default).
  */
 export const quaseAccountConfigSchema = z.object({
   token: z.string().min(1),
@@ -27,6 +34,7 @@ export const quaseAccountConfigSchema = z.object({
   // zod 4 top-level format helper; chained z.string().url() is deprecated in v4.
   baseUrl: z.url().default(QUASE_DEFAULT_BASE_URL),
   allowFrom: z.array(z.string()).default([]),
+  respondAllowFrom: z.array(z.string()).default([]),
 });
 
 /** Resolved account config (defaults applied). */
@@ -41,6 +49,7 @@ export const quaseChannelConfigSchema = buildChannelConfigSchema(quaseAccountCon
     token: { label: "Quase agent token", sensitive: true },
     baseUrl: { label: "Quase MCP endpoint", advanced: true },
     pollInterval: { label: "Inbound poll interval (seconds)", advanced: true },
+    respondAllowFrom: { label: "Respond allowlist (handles / user_ / group_ ids)", advanced: true },
   },
 });
 
