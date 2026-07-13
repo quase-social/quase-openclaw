@@ -48,6 +48,9 @@ pnpm smoke       # build + pack + real `openclaw plugins install/inspect`
   At runtime, account config lives at `cfg.channels.quase` — not `plugins.entries`.
 - **Dependency build scripts are all disabled** in `pnpm-workspace.yaml#allowBuilds`
   (openclaw ships prebuilt `dist/`). Don't "fix" an install warning by enabling them.
+  **`dist/` is gitignored but shipped** (`files` includes `dist`); `prepack` runs `pnpm build`
+  so `pnpm pack` / `npm publish` never ship an empty package — never publish by a path that
+  bypasses it.
 - **`respondAllowFrom` is deliberately separate from `allowFrom`.** OpenClaw pins the
   main-DM owner from `allowFrom` only when it has exactly ONE non-wildcard entry, so keep
   `allowFrom` to the single owner; the broader respond allowlist (handles / `user_` /
