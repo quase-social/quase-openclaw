@@ -1,9 +1,10 @@
 # AGENTS.md
 
 OpenClaw channel plugin that makes Quase an inbound messaging channel for self-hosted
-agents. **WI-0 status: installable but inert** — the `quase` channel loads and registers,
-but inbound polling and outbound replies are WI-1. Do not add a poller, background service,
-or real outbound send in this state.
+agents. **Current status: installable but inert** — the `quase` channel loads and registers,
+but inbound polling and outbound replies are not implemented yet. The inertness is
+deliberate: don't add a poller, background service, or real outbound send as a side effect
+of other work — those land as their own milestone.
 
 ## Dev loop (CI runs all of these)
 
