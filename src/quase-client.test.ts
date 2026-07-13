@@ -12,6 +12,7 @@ const cfg: QuaseAccountConfig = {
   pollInterval: 20,
   baseUrl: "https://quase.social/mcp",
   allowFrom: [],
+  respondAllowFrom: [],
 };
 
 /** Build a factory returning a per-instance stubbed client (no prototype mutation). */

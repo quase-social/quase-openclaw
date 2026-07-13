@@ -4,17 +4,25 @@ import {
   type OpenClawConfig,
 } from "openclaw/plugin-sdk/channel-core";
 import type { ChannelSetupWizard } from "openclaw/plugin-sdk/channel-setup";
+import type { ChannelGatewayContext } from "openclaw/plugin-sdk/channel-runtime";
 import {
   quaseChannelConfigSchema,
+  QUASE_CHANNEL_ID,
   QUASE_DEFAULT_BASE_URL,
   QUASE_TOKEN_ENV_VAR,
   DEFAULT_POLL_INTERVAL,
   MIN_POLL_INTERVAL,
+  tokenLast4,
   type QuaseAccountConfig,
 } from "./config.js";
+import { QuaseSession } from "./quase-client.js";
+import { buildQuaseDispatch } from "./dispatch.js";
+import { startQuasePoller } from "./poller.js";
 
-/** The channel id used throughout the gateway config (`cfg.channels.quase`). */
-export const QUASE_CHANNEL_ID = "quase";
+export { QUASE_CHANNEL_ID };
+
+/** MCP client name/version presented to Quase (cosmetic identity on the transport). */
+const QUASE_CLIENT_VERSION = "0.1.0";
 
 /** Account id used when the channel is configured single-account (no named accounts). */
 export const DEFAULT_ACCOUNT_ID = "default";
@@ -111,11 +119,15 @@ function resolveAccount(cfg: OpenClawConfig, accountId?: string | null): QuaseRe
   const allowFrom = Array.isArray(block.allowFrom)
     ? block.allowFrom.filter((x): x is string => typeof x === "string")
     : [];
+  const respondAllowFrom = Array.isArray(block.respondAllowFrom)
+    ? block.respondAllowFrom.filter((x): x is string => typeof x === "string")
+    : [];
   return {
     token: resolveTokenValue(block),
     pollInterval: coerceInt(block.pollInterval, DEFAULT_POLL_INTERVAL, MIN_POLL_INTERVAL),
     baseUrl,
     allowFrom,
+    respondAllowFrom,
     accountId: accountId ?? null,
   };
 }
@@ -248,15 +260,50 @@ const quaseSetupWizard: ChannelSetupWizard = {
   ],
 };
 
-// Quase is DM-first for WI-0: a "direct" chat type only. (ChatType = "direct"|"group"|"channel".)
+// WI-1: DMs are "direct"; post threads are isolated "channel"-kind sessions keyed by the
+// top-level post. `threads: true` is honest advertising (isolation actually comes from the
+// channel-kind peer key). (ChatType = "direct"|"group"|"channel".)
 const quaseCapabilities = {
-  chatTypes: ["direct"] as "direct"[],
+  chatTypes: ["direct", "channel"] as ("direct" | "channel")[],
   media: false,
   reactions: false,
-  threads: false,
+  threads: true,
 };
 
 const quaseConfigAdapter = { listAccountIds, resolveAccount, inspectAccount };
+
+/**
+ * gateway.startAccount — the per-account inbound poll loop (WI-1). Opens a persistent Quase
+ * session, builds the dispatch closure, and runs the poller until `ctx.abortSignal` aborts
+ * (the promise this returns resolves on teardown). An unconfigured account (no token) stays
+ * idle. Never logs the token — only its last-4 fingerprint.
+ */
+async function startAccount(ctx: ChannelGatewayContext<QuaseResolvedAccount>): Promise<void> {
+  const account = ctx.account;
+  const log = (msg: string) => ctx.log?.info(msg);
+
+  if (!account.token) {
+    log(`quase[${ctx.accountId}] not configured (no token) — poller idle`);
+    return;
+  }
+
+  const pollInterval = account.pollInterval ?? DEFAULT_POLL_INTERVAL;
+  const respondAllowFrom = account.respondAllowFrom ?? [];
+
+  const session = new QuaseSession(account, QUASE_CLIENT_VERSION);
+  const dispatch = buildQuaseDispatch({ cfg: ctx.cfg, accountId: ctx.accountId, client: session, log });
+
+  log(`quase[${ctx.accountId}] poller starting (token …${tokenLast4(account.token)}, every ${pollInterval}s)`);
+  await startQuasePoller({
+    client: session,
+    respondAllowFrom,
+    dispatch,
+    pollIntervalMs: pollInterval * 1000,
+    abortSignal: ctx.abortSignal,
+    log,
+    onClose: () => session.close(),
+  });
+}
 
 const quaseChannelBase = createChannelPluginBase<QuaseResolvedAccount>({
   id: QUASE_CHANNEL_ID,
@@ -276,9 +323,10 @@ const quaseChannelBase = createChannelPluginBase<QuaseResolvedAccount>({
 });
 
 /**
- * The inert Quase channel plugin: `base` only (no outbound/security/pairing/threading real
- * behavior for WI-0). It registers as a valid, configured channel but starts no poller and
- * sends nothing — inbound/outbound land in WI-1.
+ * The live Quase channel plugin (WI-1): the `base` plus a `gateway.startAccount` poll loop
+ * that dispatches inbound DMs/mentions/replies into the agent and delivers replies back to
+ * Quase (send_dm / reply_create). Outbound is replies-only — the per-turn delivery adapter,
+ * not a standing send tool.
  *
  * `createChannelPluginBase` widens `capabilities`/`config` to optional in its return type,
  * but the runtime object supplies both — reassert them so the base satisfies
@@ -289,6 +337,7 @@ export const quaseChannelPlugin = createChatChannelPlugin<QuaseResolvedAccount>(
     ...quaseChannelBase,
     capabilities: quaseCapabilities,
     config: quaseConfigAdapter,
+    gateway: { startAccount },
   },
 });
 

@@ -25,7 +25,39 @@ export {
   createQuaseClient,
   verifyConnectivity,
   describeConnectivity,
+  QuaseSession,
+  QuaseToolError,
   type ConnectivityResult,
   type QuaseClientHandle,
   type QuaseClientFactory,
+  type QuaseApi,
+  type QuaseIdentity,
+  type QuaseInboxItem,
+  type QuaseInboxResult,
+  type QuasePost,
+  type QuaseDmThread,
+  type QuaseConversation,
+  type QuaseReplyResult,
+  type QuaseUser,
 } from "./src/quase-client.js";
+
+export { shouldRespond, type RespondPolicy, type RespondSubject } from "./src/respond-policy.js";
+
+export {
+  mapEvent,
+  dedupeEventsByRef,
+  isIgnored,
+  type QuaseInboxEvent,
+  type QuaseEventType,
+  type DispatchableInbound,
+  type ReplyTarget,
+  type ConversationScope,
+  type MapResult,
+  type MapperDeps,
+} from "./src/mapper.js";
+
+export { routeOutbound, type OutboundResult, type OutboundDeps } from "./src/outbound.js";
+
+export { buildQuaseDispatch, defaultDispatchRuntime, type QuaseDispatchRuntime } from "./src/dispatch.js";
+
+export { startQuasePoller, QuasePoller, type PollerDeps } from "./src/poller.js";

@@ -3,12 +3,13 @@ import { quaseChannelPlugin } from "./src/channel.js";
 import { quaseChannelConfigSchema } from "./src/config.js";
 
 /**
- * Dev/workspace channel entry. INERT for WI-0: it registers the Quase channel so the
- * gateway sees it configured and valid, but starts no poller, no background service, and
- * no gateway routes. Inbound polling + outbound send land in WI-1.
+ * Dev/workspace channel entry. The WI-1 inbound poll loop lives on the channel's
+ * `gateway.startAccount` (see src/channel.ts), which the gateway starts per configured +
+ * enabled account — NOT here. `registerFull` stays a no-op: this entry declares no gateway
+ * RPC/CLI/HTTP routes (the future webhook front door would land here as a second front door).
  *
- * The live connectivity check is exposed as the exported verifyConnectivity() (see
- * ./api.ts) and the scripts/verify-connectivity.mjs probe, not as a gateway runtime here.
+ * The live connectivity check is the exported verifyConnectivity() (see ./api.ts) and the
+ * scripts/verify-connectivity.mjs probe.
  */
 export default defineChannelPluginEntry({
   id: "quase",
@@ -17,9 +18,9 @@ export default defineChannelPluginEntry({
   plugin: quaseChannelPlugin,
   configSchema: quaseChannelConfigSchema,
   registerCliMetadata() {
-    // INERT (WI-0): no CLI runtime registered.
+    // No CLI runtime registered.
   },
   registerFull() {
-    // INERT (WI-0): no poller, no background service, no gateway routes.
+    // No gateway RPC/HTTP routes; the poller is on the channel's gateway.startAccount.
   },
 });

@@ -34,6 +34,13 @@
             "items": {
               "type": "string"
             }
+          },
+          "respondAllowFrom": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": ["token"]
@@ -41,7 +48,8 @@
       "uiHints": {
         "token": { "label": "Quase agent token", "sensitive": true },
         "baseUrl": { "label": "Quase MCP endpoint", "advanced": true },
-        "pollInterval": { "label": "Inbound poll interval (seconds)", "advanced": true }
+        "pollInterval": { "label": "Inbound poll interval (seconds)", "advanced": true },
+        "respondAllowFrom": { "label": "Respond allowlist (handles / user_ / group_ ids)", "advanced": true }
       }
     }
   }
