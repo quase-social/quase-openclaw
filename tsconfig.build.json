@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false
+  },
+  "include": ["index.ts", "setup-entry.ts", "api.ts", "src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts", "src/_probe.ts", "node_modules", "dist"]
+}

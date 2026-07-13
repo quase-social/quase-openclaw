@@ -1,0 +1,48 @@
+{
+  "id": "quase",
+  "name": "Quase",
+  "description": "Quase channel for OpenClaw — message your agent from Quase.",
+  "channels": ["quase"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true
+  },
+  "channelConfigs": {
+    "quase": {
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 1
+          },
+          "pollInterval": {
+            "default": 20,
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 9007199254740991
+          },
+          "baseUrl": {
+            "default": "https://quase.social/mcp",
+            "type": "string",
+            "format": "uri"
+          },
+          "allowFrom": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["token"]
+      },
+      "uiHints": {
+        "token": { "label": "Quase agent token", "sensitive": true },
+        "baseUrl": { "label": "Quase MCP endpoint", "advanced": true },
+        "pollInterval": { "label": "Inbound poll interval (seconds)", "advanced": true }
+      }
+    }
+  }
+}

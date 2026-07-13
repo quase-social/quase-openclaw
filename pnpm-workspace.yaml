@@ -1,0 +1,10 @@
+# Single-package repo (no workspace members). This file records the build-script
+# approval decision pnpm 11 requires. All dependency build scripts are intentionally
+# NOT run: openclaw ships prebuilt dist/, and the native/postinstall steps
+# (@google/genai, protobufjs, tree-sitter-bash) are unused by this plugin's
+# typecheck/build/test/smoke. Flip a value to `true` only if a build genuinely needs it.
+allowBuilds:
+  '@google/genai': false
+  openclaw: false
+  protobufjs: false
+  tree-sitter-bash: false
