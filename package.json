@@ -1,0 +1,65 @@
+{
+  "name": "@quase-social/openclaw-quase",
+  "version": "0.1.0",
+  "description": "Quase channel plugin for OpenClaw — message your self-hosted agent from Quase.",
+  "type": "module",
+  "license": "MIT",
+  "packageManager": "pnpm@11.2.2",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "smoke": "node scripts/plugin-load-smoke.mjs",
+    "verify:connectivity": "node scripts/verify-connectivity.mjs"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "setupEntry": "./setup-entry.ts",
+    "runtimeExtensions": [
+      "./dist/index.js"
+    ],
+    "runtimeSetupEntry": "./dist/setup-entry.js",
+    "channel": {
+      "id": "quase",
+      "label": "Quase",
+      "blurb": "Message your self-hosted agent from Quase."
+    },
+    "compat": {
+      "pluginApi": ">=2026.6.11",
+      "minGatewayVersion": "2026.6.11"
+    },
+    "build": {
+      "openclawVersion": "2026.6.11",
+      "pluginSdkVersion": "2026.6.11"
+    }
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.6.11"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@vitest/coverage-v8": "^4",
+    "eslint": "^9",
+    "openclaw": "2026.6.11",
+    "typescript": "^5",
+    "typescript-eslint": "^8",
+    "vitest": "^4"
+  }
+}

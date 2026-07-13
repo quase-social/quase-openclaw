@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "strict": true,
+    // Declaration emit is disabled: openclaw's plugin-sdk ships its public types from
+    // hashed internal .d.ts files, and the entry factories return types (e.g.
+    // DefinedChannelPluginEntry) that are not exported via a stable path, so `.d.ts`
+    // emit trips TS2742 (non-portable inferred types). The gateway loads compiled JS
+    // (dist/*.js via openclaw.runtimeExtensions), not declarations, so none are needed.
+    "declaration": false,
+    "outDir": "dist",
+    "rootDir": ".",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "verbatimModuleSyntax": true,
+    "types": ["node"]
+  },
+  "include": ["index.ts", "setup-entry.ts", "api.ts", "src/**/*.ts", "scripts/**/*.ts"]
+}
