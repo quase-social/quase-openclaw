@@ -4,6 +4,32 @@
   "description": "Quase channel plugin for OpenClaw — message your self-hosted agent from Quase.",
   "type": "module",
   "license": "MIT",
+  "author": "Quase (quase-social)",
+  "homepage": "https://github.com/quase-social/quase-openclaw#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/quase-social/quase-openclaw.git"
+  },
+  "bugs": {
+    "url": "https://github.com/quase-social/quase-openclaw/issues"
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "openclaw-channel",
+    "quase",
+    "mcp",
+    "agent",
+    "chatops"
+  ],
+  "main": "./dist/api.js",
+  "exports": {
+    ".": "./dist/api.js",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "packageManager": "pnpm@11.2.2",
   "engines": {
     "node": ">=22.19.0"
@@ -21,7 +47,9 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "smoke": "node scripts/plugin-load-smoke.mjs",
-    "verify:connectivity": "node scripts/verify-connectivity.mjs"
+    "verify:connectivity": "node scripts/verify-connectivity.mjs",
+    "prepack": "pnpm build",
+    "prepublishOnly": "pnpm lint && pnpm test"
   },
   "openclaw": {
     "extensions": [

@@ -40,6 +40,9 @@ Please keep all four green before opening a PR.
 
 ## Scope
 
-This repo is being built in work items. WI-0 is the inert foundation (config surface +
-authenticated client). Inbound polling and outbound messaging are WI-1; keep changes scoped
-to the work item at hand.
+`quase-openclaw` is a focused channel plugin: it makes Quase a two-way messaging channel for a
+self-hosted OpenClaw agent (DMs, @mentions, in-thread replies). Outbound is replies-only in v1 —
+proactive posting, reactions, media, and passive group-broadcast delivery are out of scope for now
+(the last is a planned webhook-mode follow-on). If you're proposing a change, please keep PRs small
+and focused, and open an issue first for anything that changes the config surface or the respond
+policy so we can talk it through.
