@@ -112,6 +112,30 @@ describe("QuaseSession wrappers (result parsing)", () => {
     expect(res.items).toEqual([]);
   });
 
+  it("checkInbox pages: passes after_inbox_item_id and parses truncated + the next cursor", async () => {
+    const { session, calls } = sessionWith(
+      returning({ items: [], last_seen_inbox_at: "w", server_time: "t", truncated: true, next_after_inbox_item_id: "inb_1" }),
+    );
+    const res = await session.checkInbox({ since: "2026-07-05T15:00:00+00:00", limit: 50, afterInboxItemId: "inb_9" });
+    expect(calls[0]).toEqual({
+      name: "check_inbox",
+      args: { since: "2026-07-05T15:00:00+00:00", limit: 50, after_inbox_item_id: "inb_9" },
+    });
+    expect(res.truncated).toBe(true);
+    expect(res.nextAfterInboxItemId).toBe("inb_1");
+  });
+
+  it("checkInbox: a null / absent cursor ⇒ nextAfterInboxItemId undefined, truncated false", async () => {
+    const nullCursor = sessionWith(returning({ items: [], truncated: false, next_after_inbox_item_id: null }));
+    const res = await nullCursor.session.checkInbox();
+    expect(res.nextAfterInboxItemId).toBeUndefined();
+    expect(res.truncated).toBe(false);
+    const absent = sessionWith(returning({ items: [] }));
+    const res2 = await absent.session.checkInbox();
+    expect(res2.nextAfterInboxItemId).toBeUndefined();
+    expect(res2.truncated).toBe(false);
+  });
+
   it("updateInboxSeen advances the watermark via seen_at", async () => {
     const { session, calls } = sessionWith(returning({}));
     await session.updateInboxSeen({ seenAt: "2026-07-05T15:27:58.873432+00:00" });
@@ -165,8 +189,19 @@ describe("QuaseSession wrappers (result parsing)", () => {
             { user_id: "user_owner", handle: "solo" },
           ],
         },
-        replies: [{ author_user_id: "user_owner", author_handle: "solo", content: "hi there", created_at: "t" }],
-        reply_count: 1,
+        replies: [
+          {
+            message_id: "dmsg_1",
+            post_id: "dmsg_1",
+            author_user_id: "user_owner",
+            author_handle: "solo",
+            content: "hi there",
+            created_at: "2026-07-05T15:27:58.873432+00:00",
+          },
+          { post_id: "dmsg_2", author_user_id: "user_agent", author_handle: "botly", content: "hello", created_at: "2026-07-05T15:28:00+00:00" },
+        ],
+        reply_count: 2,
+        next_after_reply_id: "dmsg_2",
       }),
     );
     const t = await session.getDmThread("conv_1");
@@ -175,7 +210,26 @@ describe("QuaseSession wrappers (result parsing)", () => {
       { userId: "user_agent", handle: "botly" },
       { userId: "user_owner", handle: "solo" },
     ]);
-    expect(t.messages[0]).toMatchObject({ fromUserId: "user_owner", fromHandle: "solo", content: "hi there" });
+    expect(t.messages[0]).toMatchObject({
+      messageId: "dmsg_1",
+      fromUserId: "user_owner",
+      fromHandle: "solo",
+      content: "hi there",
+      createdAt: "2026-07-05T15:27:58.873432+00:00",
+    });
+    expect(t.messages[1]).toMatchObject({ messageId: "dmsg_2", createdAt: "2026-07-05T15:28:00+00:00" }); // post_id fallback
+    expect(t.nextAfterReplyId).toBe("dmsg_2");
+  });
+
+  it("getDmThread: a null next_after_reply_id (end of thread) ⇒ nextAfterReplyId undefined", async () => {
+    const { session } = sessionWith(returning({ post: { participant_profiles: [] }, replies: [], next_after_reply_id: null }));
+    expect((await session.getDmThread("conv_1")).nextAfterReplyId).toBeUndefined();
+  });
+
+  it("getDmThread passes limit + after_reply_id through", async () => {
+    const { session, calls } = sessionWith(returning({ post: {}, replies: [] }));
+    await session.getDmThread("conv_1", { limit: 200, afterReplyId: "dmsg_9" });
+    expect(calls[0]).toEqual({ name: "get_dm_thread", args: { conversation_id: "conv_1", limit: 200, after_reply_id: "dmsg_9" } });
   });
 
   it("getConversations maps the LIVE `result` key", async () => {
@@ -212,37 +266,20 @@ describe("QuaseSession wrappers (result parsing)", () => {
     expect(calls[0]).toEqual({ name: "send_dm", args: { conversation_id: "conv_1", content: "reply body" } });
   });
 
-  it("replyCreate passes mentions as {handle, display_name} and echoes mentions_dropped", async () => {
+  it("replyCreate sends content only (Quase scans @handles itself) and parses mentions_unresolved", async () => {
     const { session, calls } = sessionWith(
       returning({
         post_id: "post_new",
-        mentions: [{ handle: "bob", user_id: "user_bob" }],
-        mentions_dropped: ["ghost"],
+        mentions: [{ user_id: "user_bob", display_name: "bob" }],
+        mentions_unresolved: ["ghost"],
       }),
     );
-    const res = await session.replyCreate({
-      parentId: "post_top",
-      content: "hi @bob",
-      replyToId: "post_reply",
-      mentions: [{ handle: "bob", displayName: "Bob" }],
-    });
-    expect(res.postId).toBe("post_new");
-    expect(res.mentions).toEqual([{ handle: "bob", userId: "user_bob" }]);
-    expect(res.mentionsDropped).toEqual(["ghost"]);
+    const res = await session.replyCreate({ parentId: "post_top", content: "hi @bob @ghost", replyToId: "post_reply" });
+    expect(res).toEqual({ postId: "post_new", mentionsUnresolved: ["ghost"] });
     expect(calls[0]).toEqual({
       name: "reply_create",
-      args: {
-        parent_id: "post_top",
-        content: "hi @bob",
-        reply_to_id: "post_reply",
-        mentions: [{ handle: "bob", display_name: "Bob" }],
-      },
+      args: { parent_id: "post_top", content: "hi @bob @ghost", reply_to_id: "post_reply" },
     });
-  });
-
-  it("searchUsers maps user_id/handle/display_name", async () => {
-    const { session } = sessionWith(returning({ users: [{ user_id: "user_bob", handle: "bob", display_name: "Bob" }] }));
-    expect(await session.searchUsers("bob")).toEqual([{ userId: "user_bob", handle: "bob", displayName: "Bob" }]);
   });
 });
 
@@ -272,6 +309,24 @@ describe("QuaseSession transport behavior", () => {
     }));
     await expect(session.replyCreate({ parentId: "post_top", content: "x" })).rejects.toBeInstanceOf(QuaseToolError);
     expect(getFactoryCalls()).toBe(1); // application error, not a transport drop → no reconnect
+  });
+
+  it("carries the envelope's retryable flag on QuaseToolError", async () => {
+    const errorOf = async (result: ToolResult): Promise<QuaseToolError> => {
+      const { session } = sessionWith(async () => result);
+      try {
+        await session.postGet("post_x");
+      } catch (e) {
+        if (e instanceof QuaseToolError) return e;
+        throw e;
+      }
+      throw new Error("expected a QuaseToolError");
+    };
+    expect((await errorOf({ structuredContent: { error: "x", retryable: false } })).retryable).toBe(false);
+    expect((await errorOf({ structuredContent: { error: "x", retryable: true } })).retryable).toBe(true);
+    expect((await errorOf({ structuredContent: { error: "x" } })).retryable).toBeUndefined();
+    const isErrorText = { isError: true, content: [{ type: "text", text: JSON.stringify({ error: "x", retryable: true }) }] };
+    expect((await errorOf(isErrorText)).retryable).toBe(true);
   });
 
   it("never leaks the token in a thrown transport error", async () => {

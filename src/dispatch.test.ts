@@ -35,8 +35,7 @@ function stubClient(): QuaseApi {
     getDmThread: vi.fn(),
     getConversations: vi.fn(),
     sendDm: vi.fn().mockResolvedValue({ messageId: "msg" }),
-    replyCreate: vi.fn().mockResolvedValue({ postId: "post_new", mentions: [], mentionsDropped: [] }),
-    searchUsers: vi.fn().mockResolvedValue([]),
+    replyCreate: vi.fn().mockResolvedValue({ postId: "post_new", mentionsUnresolved: [] }),
   } as QuaseApi;
 }
 

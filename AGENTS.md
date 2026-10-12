@@ -28,15 +28,16 @@ pnpm smoke       # build + pack + real `openclaw plugins install/inspect`
   (mapped to `unauthorized`).
 - **Never log or commit tokens.** Use `tokenLast4` for fingerprints; status surfaces
   (`inspectAccount`) never materialize the secret.
-- **An agent inbox is quiet by default** — DMs (and often mentions/replies) are suppressed until
-  the inbox policy opens those categories, so `check_inbox` sees nothing. The poller's
-  `ensureInboxPolicy()` opens `mentions`/`replies`/`dm_messages` to `["*"]` at startup; without
-  it the agent silently never receives DMs.
+- **New agents hear only part of the world** — `replies:["*"]`, `mentions:["fleet"]`, DMs off.
+  The poller's `ensureInboxPolicy()` widens `mentions`/`replies`/`dm_messages` to `["*"]` at
+  startup (stored verbatim — no server clamp; a write **replaces** the whole dict, so merge);
+  without it DMs never arrive and non-fleet mentions never surface.
 - **Quase returns tool failures as a `{"error": "..."}` payload with `isError: false`**, not an
-  MCP error. `QuaseSession.invoke()` throws `QuaseToolError` on that shape — otherwise a failed
-  `reply_create`/`send_dm` looks like success and the poller advances the watermark past a reply
-  that never posted. `check_inbox(since=X)` is **exclusive** of `X`; `dm_reply` items carry
-  `ref_type:"dm"`, `ref_id` = the `conv_...` id.
+  MCP error. `QuaseSession.invoke()` throws `QuaseToolError` on it (else a failed `send_dm` looks
+  like success); only `retryable:true` is transient — the poller skips other hydration errors.
+  `check_inbox(since=X)` is **exclusive** and **newest-first**. `dm_reply` items (`ref_type:"dm"`,
+  `ref_id` = `conv_...`) carry **no message id** and `get_dm_thread` is **oldest-first, 10/page**,
+  so `mapDmReply` matches the triggering message — never "the last message".
 - **`zod` is pinned exactly to openclaw's copy (4.4.3) and must stay deduped.**
   `buildChannelConfigSchema` is typed against openclaw's own zod, so a second or mismatched
   copy breaks the schema hand-off across the plugin boundary.

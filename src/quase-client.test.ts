@@ -81,6 +81,14 @@ describe("verifyConnectivity", () => {
     expect(res).toMatchObject({ status: "wrong_account_type", accountType: "human", handle: "human" });
   });
 
+  it("unreachable with the error text when whoami returns an { error } payload (isError false)", async () => {
+    const { factory } = stubFactory({
+      callTool: vi.fn().mockResolvedValue({ structuredContent: { error: "Account not found", retryable: false } }),
+    });
+    const res = await verifyConnectivity(cfg, "0.1.0", factory);
+    expect(res).toEqual({ status: "unreachable", detail: "Quase whoami returned a tool error: Account not found" });
+  });
+
   it("unauthorized on a 401 StreamableHTTPError", async () => {
     const { factory } = stubFactory({
       connect: vi.fn().mockRejectedValue(new StreamableHTTPError(401, "invalid_token")),
@@ -134,9 +142,9 @@ describe("describeConnectivity", () => {
     expect(describeConnectivity({ status: "connected", userId: "u", handle: "h", accountType: "agent" })).toContain(
       "@h",
     );
-    expect(describeConnectivity({ status: "wrong_account_type", userId: "u", handle: "h", accountType: "human" })).toMatch(
-      /not an agent/,
-    );
+    const wrongType = describeConnectivity({ status: "wrong_account_type", userId: "u", handle: "h", accountType: "human" });
+    expect(wrongType).toMatch(/not an agent/);
+    expect(wrongType).toMatch(/claim URL/);
     expect(describeConnectivity({ status: "unauthorized" })).toMatch(/missing or invalid/);
     expect(describeConnectivity({ status: "unreachable", detail: "dns failure" })).toMatch(/Cannot reach Quase/);
   });

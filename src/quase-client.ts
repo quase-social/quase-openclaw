@@ -76,6 +76,13 @@ function extractResultJson(res: CallToolResultLike): unknown {
   return undefined;
 }
 
+/** The `error` string of a Quase `{ "error": ... }` failure payload (Quase leaves `isError` false). */
+function toolErrorOf(json: unknown): string | undefined {
+  return json && typeof json === "object" && typeof (json as { error?: unknown }).error === "string"
+    ? (json as { error: string }).error
+    : undefined;
+}
+
 /** Read user_id / handle / profile.account_type from a parsed whoami object. */
 function parseWhoamiIdentity(res: CallToolResultLike): WhoamiIdentity | null {
   const raw = extractResultJson(res);
@@ -133,8 +140,12 @@ export async function verifyConnectivity(
     await handle.client.connect(handle.transport as never);
     const res = (await handle.client.callTool({ name: "whoami", arguments: {} })) as CallToolResultLike;
 
-    if (res.isError) {
-      return { status: "unreachable", detail: "Quase whoami returned a tool error." };
+    const toolError = toolErrorOf(extractResultJson(res));
+    if (res.isError || toolError !== undefined) {
+      return {
+        status: "unreachable",
+        detail: toolError ? `Quase whoami returned a tool error: ${sanitizeDetail(toolError, cfg.token)}` : "Quase whoami returned a tool error.",
+      };
     }
 
     const identity = parseWhoamiIdentity(res);
@@ -171,7 +182,7 @@ export function describeConnectivity(result: ConnectivityResult): string {
     case "connected":
       return `Connected to Quase as @${result.handle} (${result.userId}, agent).`;
     case "wrong_account_type":
-      return `Token authenticates as ${result.accountType}, not an agent. Mint an agent token with create_agent on Quase.`;
+      return `Token authenticates as ${result.accountType}, not an agent. Provision an agent with create_agent on Quase and redeem its claim URL for the qse_agt_ token.`;
     case "unauthorized":
       return "Quase agent token is missing or invalid.";
     case "unreachable":
@@ -215,6 +226,9 @@ export interface QuaseInboxResult {
   lastSeenInboxAt: string | null;
   serverTime: string | null;
   unreadCount?: number;
+  /** True when older items remain past this page (newest-first) — follow `nextAfterInboxItemId`. */
+  truncated?: boolean;
+  nextAfterInboxItemId?: string;
 }
 
 /** A hydrated post (or reply — both share the `post_` prefix). */
@@ -234,11 +248,25 @@ export interface QuaseParticipant {
   handle: string;
 }
 
-/** A hydrated DM thread: who is in it + its messages (latest last). */
+/** One DM message as `get_dm_thread` returns it. */
+export interface QuaseDmMessage {
+  messageId?: string; // dmsg_… (live: both message_id and post_id carry it)
+  fromUserId: string;
+  fromHandle: string;
+  content: string;
+  createdAt?: string;
+}
+
+/**
+ * One PAGE of a DM thread: who is in it + its messages **oldest-first** (server default 10/page,
+ * max 200). `nextAfterReplyId` is the forward cursor — set while more messages remain (even after
+ * an empty page), absent at the end of the thread.
+ */
 export interface QuaseDmThread {
   conversationId?: string;
   participantProfiles: QuaseParticipant[];
-  messages: { fromUserId: string; fromHandle: string; content: string; createdAt?: string }[];
+  messages: QuaseDmMessage[];
+  nextAfterReplyId?: string;
 }
 
 /** A conversation summary (for owner detection when a thread is not hydratable). */
@@ -247,18 +275,10 @@ export interface QuaseConversation {
   participantProfiles: QuaseParticipant[];
 }
 
-/** The `reply_create` result — carries mention-delivery evidence (see research §2.6). */
+/** The `reply_create` result — `mentionsUnresolved` lists `@handle`s Quase could not resolve (not mentioned). */
 export interface QuaseReplyResult {
   postId?: string;
-  mentions: { handle: string; userId?: string }[];
-  mentionsDropped: string[];
-}
-
-/** A user resolved via `search_users` (for outbound mention resolution). */
-export interface QuaseUser {
-  userId: string;
-  handle: string;
-  displayName?: string;
+  mentionsUnresolved: string[];
 }
 
 export interface CheckInboxArgs {
@@ -268,13 +288,13 @@ export interface CheckInboxArgs {
   groupId?: string;
   unreadOnly?: boolean;
   limit?: number;
+  afterInboxItemId?: string;
 }
 
 export interface ReplyCreateArgs {
   parentId: string;
   content: string;
   replyToId?: string;
-  mentions?: { handle: string; displayName?: string }[];
 }
 
 /**
@@ -296,14 +316,18 @@ export interface QuaseApi {
   getConversations(opts?: { limit?: number }): Promise<QuaseConversation[]>;
   sendDm(args: { conversationId: string; content: string }): Promise<{ messageId?: string }>;
   replyCreate(args: ReplyCreateArgs): Promise<QuaseReplyResult>;
-  searchUsers(query: string): Promise<QuaseUser[]>;
 }
 
-/** A tool-level failure (`isError` on the CallToolResult). Not a transport drop — no reconnect. */
+/**
+ * A Quase tool-level failure (`isError`, or an `{ "error": ... }` payload). Not a transport drop —
+ * no reconnect. `retryable` mirrors the envelope flag: `true` = transient (fault / rate limit),
+ * `false` = deterministic refusal, absent = the tool's own failure (deterministic too, per Quase).
+ */
 export class QuaseToolError extends Error {
   constructor(
     public readonly tool: string,
     detail: string,
+    public readonly retryable?: boolean,
   ) {
     super(`Quase ${tool} returned a tool error: ${detail}`);
     this.name = "QuaseToolError";
@@ -363,7 +387,7 @@ function parsePost(raw: unknown): QuasePost {
 }
 
 /**
- * A persistent MCP session for the poll loop: one long-lived client+transport, reconnected
+ * A persistent MCP session for the poll loop: one shared client+transport, reconnected
  * on a dropped transport (never per-tick). Wraps the Quase tools the WI-1 components call
  * and reuses WI-0's `structuredContent`-else-first-text-block parsing + single-close
  * discipline. Never logs the token.
@@ -428,12 +452,17 @@ export class QuaseSession implements QuaseApi {
     // field in the result payload (with isError left false — e.g. "Cannot reply to a nested
     // reply"). Treat both as failures so a failed send_dm/reply_create surfaces as a rejected
     // dispatch and the poller does NOT advance the watermark past a reply that never posted.
+    const retryable =
+      json && typeof json === "object" && typeof (json as { retryable?: unknown }).retryable === "boolean"
+        ? (json as { retryable: boolean }).retryable
+        : undefined;
     if (res.isError) {
       const detail = json != null ? (typeof json === "string" ? json : JSON.stringify(json)) : "unknown error";
-      throw new QuaseToolError(name, sanitizeDetail(detail, this.cfg.token));
+      throw new QuaseToolError(name, sanitizeDetail(detail, this.cfg.token), retryable);
     }
-    if (json && typeof json === "object" && typeof (json as { error?: unknown }).error === "string") {
-      throw new QuaseToolError(name, sanitizeDetail((json as { error: string }).error, this.cfg.token));
+    const toolError = toolErrorOf(json);
+    if (toolError !== undefined) {
+      throw new QuaseToolError(name, sanitizeDetail(toolError, this.cfg.token), retryable);
     }
     return json;
   }
@@ -459,6 +488,7 @@ export class QuaseSession implements QuaseApi {
     if (args.groupId != null) toolArgs.group_id = args.groupId;
     if (args.unreadOnly != null) toolArgs.unread_only = args.unreadOnly;
     if (args.limit != null) toolArgs.limit = args.limit;
+    if (args.afterInboxItemId != null) toolArgs.after_inbox_item_id = args.afterInboxItemId;
 
     const raw = asRecord(await this.call("check_inbox", toolArgs));
     const items = firstArray(raw, "items", "notifications", "inbox").map(parseInboxItem);
@@ -469,6 +499,8 @@ export class QuaseSession implements QuaseApi {
       lastSeenInboxAt: lastSeen != null ? String(lastSeen) : null,
       serverTime: serverTime != null ? String(serverTime) : null,
       unreadCount: typeof raw.unread_count === "number" ? raw.unread_count : undefined,
+      truncated: raw.truncated === true,
+      nextAfterInboxItemId: optString(raw.next_after_inbox_item_id),
     };
   }
 
@@ -498,9 +530,10 @@ export class QuaseSession implements QuaseApi {
     // Live shape: the conversation envelope (with participant_profiles) is nested under
     // `post`; messages are under `replies` and carry author_* (not from_*) fields.
     const envelope = asRecord(raw.post);
-    const messages = firstArray(raw, "replies", "messages").map((m) => {
+    const messages = firstArray(raw, "replies", "messages").map((m): QuaseDmMessage => {
       const rec = asRecord(m);
       return {
+        messageId: optString(rec.message_id ?? rec.post_id),
         fromUserId: String(rec.author_user_id ?? rec.from_user_id ?? ""),
         fromHandle: String(rec.author_handle ?? rec.from_handle ?? ""),
         content: String(rec.content ?? ""),
@@ -511,6 +544,7 @@ export class QuaseSession implements QuaseApi {
       conversationId: optString(raw.conversation_id ?? envelope.conversation_id),
       participantProfiles: parseParticipants(envelope.participant_profiles ?? raw.participant_profiles),
       messages,
+      nextAfterReplyId: optString(raw.next_after_reply_id),
     };
   }
 
@@ -537,29 +571,9 @@ export class QuaseSession implements QuaseApi {
   async replyCreate(args: ReplyCreateArgs): Promise<QuaseReplyResult> {
     const toolArgs: Record<string, unknown> = { parent_id: args.parentId, content: args.content };
     if (args.replyToId != null) toolArgs.reply_to_id = args.replyToId;
-    if (args.mentions != null) {
-      toolArgs.mentions = args.mentions.map((m) => ({ handle: m.handle, display_name: m.displayName }));
-    }
     const raw = asRecord(await this.call("reply_create", toolArgs));
-    const mentions = (Array.isArray(raw.mentions) ? raw.mentions : []).map((m) => {
-      const rec = asRecord(m);
-      return { handle: String(rec.handle ?? ""), userId: optString(rec.user_id) };
-    });
-    const droppedRaw = Array.isArray(raw.mentions_dropped) ? raw.mentions_dropped : [];
-    const mentionsDropped = droppedRaw.map((d) => (typeof d === "string" ? d : String(asRecord(d).handle ?? "")));
-    return { postId: optString(raw.post_id ?? raw.reply_id ?? raw.id), mentions, mentionsDropped };
-  }
-
-  async searchUsers(query: string): Promise<QuaseUser[]> {
-    const raw = await this.call("search_users", { query });
-    const list = Array.isArray(raw) ? raw : firstArray(asRecord(raw), "users", "results", "items");
-    return list.map((u) => {
-      const rec = asRecord(u);
-      return {
-        userId: String(rec.user_id ?? ""),
-        handle: String(rec.handle ?? ""),
-        displayName: optString(rec.display_name),
-      };
-    });
+    const unresolvedRaw = Array.isArray(raw.mentions_unresolved) ? raw.mentions_unresolved : [];
+    const mentionsUnresolved = unresolvedRaw.map((u) => (typeof u === "string" ? u : String(asRecord(u).handle ?? "")));
+    return { postId: optString(raw.post_id ?? raw.reply_id ?? raw.id), mentionsUnresolved };
   }
 }

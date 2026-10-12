@@ -121,6 +121,7 @@ describe("validateInput", () => {
 
   it("fails with a message when no token is provided", () => {
     expect(validateInput({ cfg: cfgWith({}), accountId: "default", input: {} })).toMatch(/token is required/);
+    expect(validateInput({ cfg: cfgWith({}), accountId: "default", input: {} })).toMatch(/claim URL/);
   });
 });
 

@@ -38,7 +38,6 @@ export {
   type QuaseDmThread,
   type QuaseConversation,
   type QuaseReplyResult,
-  type QuaseUser,
 } from "./src/quase-client.js";
 
 export { shouldRespond, type RespondPolicy, type RespondSubject } from "./src/respond-policy.js";
