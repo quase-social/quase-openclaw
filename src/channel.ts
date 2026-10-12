@@ -207,7 +207,7 @@ function validateInput(params: { cfg: OpenClawConfig; accountId: string; input: 
   const { input } = params;
   if (input.useEnv) return null;
   if (typeof input.token !== "string" || input.token.trim() === "") {
-    return `A Quase agent token is required. Mint one with create_agent on Quase, or set ${QUASE_TOKEN_ENV_VAR}.`;
+    return `A Quase agent token is required. Provision the agent with create_agent on Quase and redeem its claim URL for the qse_agt_ token, or set ${QUASE_TOKEN_ENV_VAR}.`;
   }
   return null;
 }

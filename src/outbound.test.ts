@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
 import { routeOutbound, type OutboundDeps } from "./outbound.js";
-import type { QuaseApi, QuaseReplyResult, QuaseUser } from "./quase-client.js";
+import type { QuaseApi, QuaseReplyResult } from "./quase-client.js";
 import type { ReplyTarget } from "./mapper.js";
 
 /** A minimal QuaseApi stub with the outbound tools spied. */
@@ -15,8 +15,7 @@ function stubClient(overrides: Partial<QuaseApi> = {}): QuaseApi {
     getDmThread: vi.fn(),
     getConversations: vi.fn(),
     sendDm: vi.fn().mockResolvedValue({ messageId: "msg_1" }),
-    replyCreate: vi.fn().mockResolvedValue({ postId: "post_new", mentions: [], mentionsDropped: [] } as QuaseReplyResult),
-    searchUsers: vi.fn().mockResolvedValue([] as QuaseUser[]),
+    replyCreate: vi.fn().mockResolvedValue({ postId: "post_new", mentionsUnresolved: [] } as QuaseReplyResult),
     ...overrides,
   } as QuaseApi;
 }
@@ -43,38 +42,27 @@ describe("routeOutbound — post reply", () => {
   it("plain text → replyCreate with no mentions and no visibility field", async () => {
     const client = stubClient();
     const res = await routeOutbound(reply("just a reply"), postTarget, { client });
-    expect(client.replyCreate).toHaveBeenCalledWith({
-      parentId: "post_top",
-      replyToId: undefined,
-      content: "just a reply",
-      mentions: undefined,
-    });
-    // no `visibility` key passed anywhere
+    expect(client.replyCreate).toHaveBeenCalledWith({ parentId: "post_top", replyToId: undefined, content: "just a reply" });
+    // no `visibility` (or `mentions`) key passed anywhere
     const arg = (client.replyCreate as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(arg).not.toHaveProperty("visibility");
+    expect(arg).not.toHaveProperty("mentions");
     expect(res).toEqual({ messageIds: ["post_new"], visibleReplySent: true });
   });
 
-  it("@handle in text → searchUsers resolves, replyCreate gets a mentions array", async () => {
-    const client = stubClient({
-      searchUsers: vi.fn().mockResolvedValue([{ userId: "user_bob", handle: "bob", displayName: "Bob" }]),
-      replyCreate: vi.fn().mockResolvedValue({ postId: "post_new", mentions: [{ handle: "bob", userId: "user_bob" }], mentionsDropped: [] }),
-    });
+  it("@handle in text → replyCreate called with content only (no mentions array, no search)", async () => {
+    const client = stubClient();
     await routeOutbound(reply("hi @bob welcome"), postTarget, { client });
-    expect(client.searchUsers).toHaveBeenCalledWith("bob");
-    expect(client.replyCreate).toHaveBeenCalledWith({
-      parentId: "post_top",
-      replyToId: undefined,
-      content: "hi @bob welcome",
-      mentions: [{ handle: "bob", displayName: "Bob" }],
-    });
+    expect(client.replyCreate).toHaveBeenCalledTimes(1);
+    const arg = (client.replyCreate as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(arg).toEqual({ parentId: "post_top", replyToId: undefined, content: "hi @bob welcome" });
+    expect(arg).not.toHaveProperty("mentions");
   });
 
-  it("logs mentions_dropped but still resolves success", async () => {
+  it("logs mentions_unresolved but still resolves success", async () => {
     const log = vi.fn();
     const client = stubClient({
-      searchUsers: vi.fn().mockResolvedValue([]),
-      replyCreate: vi.fn().mockResolvedValue({ postId: "post_new", mentions: [{ handle: "ghost" }], mentionsDropped: ["ghost"] }),
+      replyCreate: vi.fn().mockResolvedValue({ postId: "post_new", mentionsUnresolved: ["ghost"] }),
     });
     const deps: OutboundDeps = { client, log };
     const res = await routeOutbound(reply("hey @ghost"), postTarget, deps);
@@ -86,12 +74,7 @@ describe("routeOutbound — post reply", () => {
   it("passes replyToId through when set", async () => {
     const client = stubClient();
     await routeOutbound(reply("targeted"), { kind: "post", parentId: "post_top", replyToId: "post_reply" }, { client });
-    expect(client.replyCreate).toHaveBeenCalledWith({
-      parentId: "post_top",
-      replyToId: "post_reply",
-      content: "targeted",
-      mentions: undefined,
-    });
+    expect(client.replyCreate).toHaveBeenCalledWith({ parentId: "post_top", replyToId: "post_reply", content: "targeted" });
   });
 });
 
